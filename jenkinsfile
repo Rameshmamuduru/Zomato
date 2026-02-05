@@ -7,24 +7,28 @@ pipeline {
     }
 
     environment {
-        SCANNER_HOME = tool 'sonar-scanner'
-        IMAGE_NAME   = "ramesh0621/zomato"
-        IMAGE_TAG    = "v${BUILD_NUMBER}"
-        IMAGE        = "${IMAGE_NAME}:${IMAGE_TAG}"
-        ARGOCD_SERVER = "ab36b1de79bae42c3a1779513d7f666a-901428307.ap-south-1.elb.amazonaws.com"      // replace with your ArgoCD server
-        ARGOCD_USER   = "admin"                   // or service account username
-        ARGOCD_PASS   = "AHvfN9yXyI9s0Aa6"   // use Jenkins credentials ideally
-        ARGOCD_APP    = "zomato"                  // ArgoCD application name
+        SCANNER_HOME  = tool 'sonar-scanner'
+        IMAGE_NAME    = "ramesh0621/zomato"
+        IMAGE_TAG     = "v${BUILD_NUMBER}"
+        IMAGE         = "${IMAGE_NAME}:${IMAGE_TAG}"
+        ARGOCD_SERVER = "ab36b1de79bae42c3a1779513d7f666a-901428307.ap-south-1.elb.amazonaws.com"
+        ARGOCD_USER   = "admin"
+        ARGOCD_PASS   = "AHvfN9yXyI9s0Aa6"
+        ARGOCD_APP    = "zomato"
     }
 
     stages {
 
-        stage ("Clean Workspace") {
-            steps { cleanWs() }
+        stage("Clean Workspace") {
+            steps { 
+                cleanWs() 
+            }
         }
 
-        stage ("Git Checkout") {
-            steps { git 'https://github.com/Rameshmamuduru/Zomato.git' }
+        stage("Git Checkout") {
+            steps { 
+                git 'https://github.com/Rameshmamuduru/Zomato.git' 
+            }
         }
 
         stage("Sonar Analysis") {
@@ -52,22 +56,24 @@ pipeline {
         }
 
         stage("NPM Install") {
-            steps { sh "npm install" }
+            steps { 
+                sh "npm install" 
+            }
         }
 
-        stage ("Trivy FS Scan") {
+        stage("Trivy FS Scan") {
             steps {
                 sh "trivy fs . > trivy.txt || true"
             }
         }
 
-        stage ("Docker Build") {
+        stage("Docker Build") {
             steps {
                 sh "docker build -t $IMAGE ."
             }
         }
 
-        stage ("Push Image") {
+        stage("Push Image") {
             steps {
                 withDockerRegistry([credentialsId: 'docker', url: 'https://index.docker.io/v1/']) {
                     sh "docker push $IMAGE"
@@ -75,16 +81,16 @@ pipeline {
             }
         }
 
-        stage ("Trivy Image Scan") {
+        stage("Trivy Image Scan") {
             steps {
                 sh "trivy image --severity HIGH,CRITICAL $IMAGE || true"
             }
         }
 
         stage("Update K8s Manifest") {
-    steps {
-        script {
-           sh '''
+            steps {
+                script {
+                    sh '''
                     DEPLOY_FILE=Kubernetes/zomato/deployment.yaml
                     if [ -f "$DEPLOY_FILE" ]; then
                         sed -i "s|image:.*|image: ${IMAGE}|" $DEPLOY_FILE
@@ -97,10 +103,11 @@ pipeline {
                         echo "deployment.yaml not found at $DEPLOY_FILE. Skipping manifest update."
                     fi
                     '''
+                }
+            }
         }
-    }
 
-    stage("ArgoCD Sync") {
+        stage("ArgoCD Sync") {
             steps {
                 script {
                     catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
@@ -121,10 +128,8 @@ pipeline {
                 }
             }
         }
-    }
-}
 
-}
+    } // end of stages
 
     post {
         always {
@@ -137,4 +142,5 @@ pipeline {
             )
         }
     }
-}
+
+} // end of pipeline
