@@ -8,9 +8,13 @@ pipeline {
 
     environment {
         SCANNER_HOME = tool 'sonar-scanner'
-        IMAGE_NAME = "ramesh0621/zomato"
-        IMAGE_TAG  = "v${BUILD_NUMBER}"
-        IMAGE      = "${IMAGE_NAME}:${IMAGE_TAG}"
+        IMAGE_NAME   = "ramesh0621/zomato"
+        IMAGE_TAG    = "v${BUILD_NUMBER}"
+        IMAGE        = "${IMAGE_NAME}:${IMAGE_TAG}"
+        ARGOCD_SERVER = "ab36b1de79bae42c3a1779513d7f666a-901428307.ap-south-1.elb.amazonaws.com"      // replace with your ArgoCD server
+        ARGOCD_USER   = "admin"                   // or service account username
+        ARGOCD_PASS   = "AHvfN9yXyI9s0Aa6"   // use Jenkins credentials ideally
+        ARGOCD_APP    = "zomato"                  // ArgoCD application name
     }
 
     stages {
@@ -80,17 +84,42 @@ pipeline {
         stage("Update K8s Manifest") {
     steps {
         script {
-            // Replace the image in deployment YAML
-            sh "sed -i 's|image:.*|image: ${IMAGE}|' Kubernetes/zomato/deployment.yaml"
+           sh '''
+                    DEPLOY_FILE=Kubernetes/zomato/deployment.yaml
+                    if [ -f "$DEPLOY_FILE" ]; then
+                        sed -i "s|image:.*|image: ${IMAGE}|" $DEPLOY_FILE
+                        git config user.email "jenkins@example.com"
+                        git config user.name "jenkins"
+                        git add $DEPLOY_FILE
+                        git commit -m "Update image to ${IMAGE}" || echo "No changes to commit"
+                        git push origin HEAD:main
+                    else
+                        echo "deployment.yaml not found at $DEPLOY_FILE. Skipping manifest update."
+                    fi
+                    '''
+        }
+    }
 
-            // Commit & push the change so ArgoCD sees it
-            sh """
-            git config user.email "jenkins@example.com"
-            git config user.name "jenkins"
-            git add Kubernetes/zomato/deployment.yaml
-            git commit -m "Update image to ${IMAGE}"
-            git push origin HEAD:main
-            """
+    stage("ArgoCD Sync") {
+            steps {
+                script {
+                    catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+                        sh '''
+                        # Check if ArgoCD CLI is installed
+                        if ! command -v argocd &> /dev/null; then
+                            echo "ArgoCD CLI not found. Skipping sync."
+                            exit 0
+                        fi
+
+                        # Login to ArgoCD
+                        argocd login $ARGOCD_SERVER --username $ARGOCD_USER --password $ARGOCD_PASS --insecure
+
+                        # Sync the application safely
+                        argocd app sync $ARGOCD_APP --retry-strategy=fast
+                        '''
+                    }
+                }
+            }
         }
     }
 }
